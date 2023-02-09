@@ -1,5 +1,8 @@
 # VSM Project 1
 
+## Introduction
+This project implements vector space model from scratch. Both chinese and english queries can be searched using this vector space model. In the end, retreival performance will be evaluated using several indicators: MAP, MRR and RECALL on the first ten results.
+
 ## Example output
 
 ![1-1 cosine similarity](1-1.png)
