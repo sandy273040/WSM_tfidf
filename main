@@ -1,0 +1,344 @@
+import os
+from pprint import pprint
+from VectorSpace import VectorSpace
+from Parser import Parser
+import util
+import re
+import string
+import math
+import numpy as np
+import pandas as pd
+import collections
+import jieba
+
+
+def preprocessing(x):
+    for i in string.punctuation:#清理半形標點符號
+        x = x.replace(i, " ")
+    x = re.sub(r"\n", "", x)
+    # x = x.replace("“", "")
+    # x = x.replace("”", "")
+    # x = x.replace(' ', " ")
+    # x = x.replace('[', '')
+    # x = x.replace(']', '') 
+    # x = x.replace('，', ' ')
+    # x = x.replace('。', ' ')
+    # x = x.replace('「', ' ')
+    # x = x.replace('」', ' ')
+    # x = x.replace(',', ' ')
+    x = x.replace(r"\s+"," ")
+    return x
+
+# def preprocessQuery(x):
+
+#     x = x.replace(' ', '')
+#     x = x.replace(',', ' ')
+#     #print(x)
+#     return x
+
+# def build_query(vectorSpace, queryStr, chinese=False):#input query string, output query vector
+#     queryStr = preprocessing(queryStr)
+#     queryStr = Parser.tokenise(Parser(), queryStr, chinese)
+#     return vectorSpace.buildQueryVector(queryStr)
+
+def lenCalculation(documentVectors, queryVector):
+    # for document in documentVectors:
+    #     for dimen in document:
+    #         if dimen != 0: break
+    #     print('all 0')
+    doc_len_list = [sum(document) for document in documentVectors]
+    query_len = (sum(queryVector))
+    cos_len = [docLen *  query_len for docLen in doc_len_list]
+    return cos_len
+
+def n_containing(word, docVec, keywordIndex):
+    return sum(1 for doc in docVec if doc[keywordIndex[word]] > 0)
+
+
+def idf(word, docVec, keywordIndex):
+    return math.log(len(docVec) / (1 + n_containing(word, docVec, keywordIndex)))
+
+
+def tfidf(docVectors, idf_list):
+    for doc in docVectors:
+    # print(doc)
+        for dimension, (term_tf, term_idf) in enumerate(zip(doc, idf_list)):
+            # print(dimension, term_tf, term_idf, sep=" ")
+            doc[dimension] = term_tf * term_idf
+
+    return docVectors
+
+def docConvert(path):
+    files = os.listdir(path)#path to directory
+    
+    contentList = []
+    #queryCount = 0
+    contentName = []
+    nameContent = collections.OrderedDict()
+    for file in files:
+        if file[0] == '.':
+            continue
+        else:
+            position = os.path.join(path, file)
+            with open(position, 'r', encoding = 'utf-8') as queries:
+                text = queries.read()
+                text = preprocessing(text)
+                #print('text: ', text)
+                nameContent[int((os.path.basename(position).split('.')[0])[4:])] = text
+                nameContent = collections.OrderedDict(sorted(nameContent.items()))
+                # contentList.append(text)
+                # contentName.append(int((os.path.basename(position).split('.')[0])[4:]))
+    for k, v in nameContent.items():
+        contentName.append(k)
+        contentList.append(v)
+    return contentList, contentName #retrun text of doc(or query) and names of doc(or query)
+
+def docConvert_e(path):#e for evaluation since the doc naming way is different in 4th problem
+    files = os.listdir(path)#path to directory
+    
+    contentList = []
+    #queryCount = 0
+    contentName = []
+    nameContent = collections.OrderedDict()
+    for file in files:
+        if file[0] == '.':
+            continue
+        else:
+            position = os.path.join(path, file)
+            with open(position, 'r', encoding = 'utf-8') as queries:
+                text = queries.read()
+                text = preprocessing(text)
+                #print('text: ', text)
+                nameContent[int((os.path.basename(position).split('.')[0])[1:])] = text
+                nameContent = collections.OrderedDict(sorted(nameContent.items()))
+                # contentList.append(text)
+                # contentName.append(int((os.path.basename(position).split('.')[0])[4:]))
+    for k, v in nameContent.items():
+        contentName.append(k)
+        contentList.append(v)
+    return contentList, contentName #retrun text of doc(or query) and names of doc(or query)
+    
+def sortRelevance(docList, relevanceMode):
+    if relevanceMode == 'cs': 
+        # relevanceMode = 'Cosine Similarity'
+        docList = sorted(docList.items(), key = lambda x: x[1], reverse = True)#list of tuple
+    elif relevanceMode == 'eu': 
+        # relevanceMode = 'Euclidean Distance'
+        docList = sorted(docList.items(), key = lambda x: x[1])#list of tuple
+    
+    nameList = []
+    ratingList = []
+    for docnum, rating in docList[:10]:
+        nameList.append(docnum)
+        ratingList.append(rating)
+    return nameList, ratingList
+
+def printResult(nameList, ratingList, relevanceMode):
+    '''given a list of tuples(name, score) and relevance mode('cs' or 'eu')
+    print the final sorted relevance results
+    '''
+    
+    # docList = sortRelevance(docList, relevanceMode)
+    if relevanceMode == 'cs': 
+        relevanceMode = 'Cosine Similarity'
+    elif relevanceMode == 'eu': 
+        relevanceMode = 'Euclidean Distance'
+    
+    # order_list = []
+    print(f'TF-IDF Weighting + {relevanceMode}')
+    print('NewsID', 'Score', sep='\t\t')
+    print('---------', '---------', sep='\t')
+    for docnum, rating in zip(nameList, ratingList):
+        # order_list.append(docnum)
+        print(f'News{docnum}.txt', end='\t')
+        print(rating)
+    print('-------------------------\n')
+    # return order_list
+
+def relevanceScore(path, mode, query, feedBack_mode, chineseMode):#stopwordsPath?
+    ''' 
+    parameter: path of the eight thousands documents, mode = 'cs' for cosine or 'eu' for euclidean and query string
+    print the similarity rating results of the given query
+    '''
+    docList, docNames = docConvert(path)
+    
+    queryList = []
+    queryList.append(query)
+    vectorSpace = VectorSpace(docList + queryList, chineseMode)
+    queryVector, vectorSpace.documentVectors = vectorSpace.documentVectors[len(docList):], vectorSpace.documentVectors[:len(docList)]
+    queryVector = queryVector[0]
+    # print(vectorSpace.vectorKeywordIndex)
+
+    #return a list of tuples (document_name, rating score)
+    docDict = calculateRelevance(mode, vectorSpace, queryVector, docNames)
+    nameList, ratingList = sortRelevance(docDict, mode)
+    
+    if feedBack_mode == True:
+        feedBack(path, vectorSpace, nameList, queryVector, docNames)
+    else:
+        printResult(nameList, ratingList, mode)
+    
+    return nameList
+
+def calculateRelevance(mode, vectorSpace, queryVector, docNames):
+    '''
+    calculate relevance score of the given query and document list
+    document list order unchanged
+    '''
+    #tf-idf
+    #length of each document and query
+    cos_len = lenCalculation(vectorSpace.documentVectors, queryVector)
+    #idf of each word in vectorKeywordIndex and then matrix multiplication
+    idfList = [idf(word, vectorSpace.documentVectors, vectorSpace.vectorKeywordIndex) for word in vectorSpace.vectorKeywordIndex.keys()]
+    vectorSpace.documentVectors = tfidf(vectorSpace.documentVectors, idfList)
+    if mode == 'cs':
+        queryReshape = np.reshape(queryVector, (len(queryVector), 1))
+        ratings = util.cosineMatrix(np.array(vectorSpace.documentVectors), np.array(queryReshape), cos_len)
+        # print(ratings)
+        ratings = [item[0] for item in ratings.tolist()]
+    elif mode == 'eu':
+        ratings = [util.euclidean(queryVector, document) for document in vectorSpace.documentVectors]
+        
+    #associate doc name with its rating from query
+    docDict = dict()
+    for name, ratingDoc in zip(docNames, ratings):
+        docDict[name] = ratingDoc
+    return docDict
+
+def feedBack(path, vectorSpace, nameList, queryVector, docNames):
+    '''
+    get the most relevant documents of the given pseudo feedback
+    '''
+    ret = ''
+    first_doc = str(nameList[0])
+    with open(os.path.join(path, f'News{first_doc}.txt'),'r', encoding="utf-8") as f:
+        ret = f.read()
+        ret = preprocessing(ret)
+    #return adjusted queryVector
+    queryVector = vectorSpace.feedback(ret, queryVector)
+    #return a list of tuples contain (docname, docscore)
+    mode = 'cs'
+    docDict = calculateRelevance(mode, vectorSpace, queryVector, docNames)
+    
+    print('Relevance')
+    nameList, ratingList = sortRelevance(docDict, mode)
+    printResult(nameList, ratingList, mode)
+    
+def map(ratingsList, rel, queryNameList):
+    apValue = []
+    for name, rating in zip(queryNameList, ratingsList):#ap->apValue; name=queryName, rating=(doc, score) pair from cos
+        #print('name: ', name, 'rating: ', rating, sep='/t')
+        hitNum = 0.0
+        totalNum = 0.0
+        ap = 0.0
+        for docName, score in rating:
+            #each scoreList in a query
+            totalNum+=1
+            #print('docName: ', docName, 'score: ', score, sep='\t')
+            if str(docName) in rel[rel['query'] == ('q' + str(name))]['doc'].values.tolist()[0]:
+                hitNum+=1
+                ap += float(hitNum / totalNum)
+        if hitNum == 0: apValue.append(0.0)
+        else: apValue.append(float(ap / hitNum))
+    return float(sum(apValue) / len(ratingsList))#divided by total number of queries
+
+def recall(ratingsList, rel, queryNameList):
+    recallList = []
+    #for each query
+    for name, rating in zip(queryNameList, ratingsList):#ap->apValue; name=queryName, rating=(doc, score) pair from cos
+        correctLen = len(rel[rel['query'] == ('q' + str(name))]['doc'].values.tolist()[0])
+        hitNum = 0.0
+        for docName, score in rating:
+            #each scoreList in a query
+            if str(docName) in rel[rel['query'] == ('q' + str(name))]['doc'].values.tolist()[0]:
+                hitNum+=1
+        if hitNum == 0: recallList.append(0.0)
+        else: recallList.append(float(hitNum / correctLen))
+    #print('len: ', len(ratingsList))
+    return float(sum(recallList) / len(ratingsList))
+
+def mrr(ratingsList, rel, queryNameList):
+    reciprocalRank = []
+    for name, rating in zip(queryNameList, ratingsList):#ap->reciprocalRank; name=queryName, rating=(doc, score) pair from cos
+        hitRank = 0.0
+        accumulate = 0.0
+        ap = 0.0
+        for docName, score in rating:
+            #each scoreList in a query
+            accumulate += 1
+            # print('name', rel[rel['query'] == str(name)])
+            # print('ans list', rel[rel['query'] == str(name)]['doc'], sep='\t')
+            if str(docName) in rel[rel['query'] == ('q' + str(name))]['doc'].values.tolist()[0]:
+                hitRank = 1 / accumulate
+        reciprocalRank.append(float(hitRank))
+    return float(sum(reciprocalRank)) / len(reciprocalRank)
+    
+def evaluation():
+    '''
+    calculate evaluation score of the documents and queries
+    '''
+    print('tfidf retrieve ...')
+    print('-------------------------------------------------------------')
+    
+    path = r'C:\Users\USER\py_workspace\wsm-codes\smaller_dataset'
+    rel = pd.read_csv(path + r'\rel.tsv', sep='\t', header=None, names=['query', 'doc'])
+    rel['doc'] = rel['doc'].apply(lambda x: preprocessing(x))
+    # rel['doc'] = rel['doc'].apply(lambda x: preprocessQuery(x))
+    # print(rel[rel['query'] == 'q0']['doc'].values.tolist()[0])
+    #read text file
+    doc_list, docName = docConvert_e(path + r"\collections")
+    #read queries
+    query_list, queryName = docConvert_e(path + r"\queries")
+    
+    mode = 'cs'
+    vectorSpace = VectorSpace(doc_list + query_list)
+    # print(vectorSpace.vectorKeywordIndex)
+    queryVector_list, vectorSpace.documentVectors = vectorSpace.documentVectors[len(doc_list):], vectorSpace.documentVectors[:len(doc_list)]###
+    
+    ratingsList = []#list of ratings list of each query
+    #length of each document and query
+    for query, name in zip(queryVector_list, queryName):
+        cos_len = lenCalculation(vectorSpace.documentVectors, query)
+    
+        #tf-idf
+        #idf of each word in vectorKeywordIndex and then matrix multiplication
+        idfList = [idf(word, vectorSpace.documentVectors, vectorSpace.vectorKeywordIndex) for word in vectorSpace.vectorKeywordIndex.keys()]
+        vectorSpace.documentVectors = tfidf(vectorSpace.documentVectors, idfList)
+        
+        queryReshape = np.reshape(query, (len(query), 1))
+        ratings = util.cosineMatrix(np.array(vectorSpace.documentVectors), np.array(queryReshape), cos_len)
+        ratings = ratings.tolist()
+    
+        #each query's rating to all doc, document id:rating and  - using dict
+        docDict = dict()
+        for docID, ratingDoc in zip(docName, ratings):
+            docDict[docID] = ratingDoc[0] #[0] since it is a list of lists of rating to each doc, each list has only one element
+
+        order_list = sorted(docDict.items(), key = lambda x: x[1], reverse = True)#list of tuple
+        #order_list = sortRelevance(docDict, mode)#list of tuples(name, score)
+        ratingsList.append(order_list)
+    
+    print('tfidf', 'MRR@10', mrr(ratingsList, rel, queryName), sep='\t\t')
+    print('tfidf', 'MAP@10', map(ratingsList, rel, queryName), sep='\t\t')
+    print('tfidf', 'RECALL@10', sep='\t\t', end='\t')
+    print(recall(ratingsList, rel, queryName))
+    print('-------------------------------------------------------------')
+    
+if __name__ == '__main__':
+    eightThousandsPath = "C:\\Users\\USER\\py_workspace\\wsm-codes\\EnglishNews"
+    query = "Youtube Taiwan COVID-19"
+    #1-1 - tf-idf with cosine similarity
+    relevanceScore(eightThousandsPath, 'cs', query, feedBack_mode = False, chineseMode = False)
+    #1-2 - tf-idf with euclidean distance
+    relevanceScore(eightThousandsPath, 'eu', query, feedBack_mode = False, chineseMode = False)
+    
+    #2 - with feedback
+    relevanceScore(eightThousandsPath, 'cs', query, feedBack_mode = True, chineseMode = False)
+    
+    #3 - Chinese tf-idf
+    chinesePath = "C:\\Users\\USER\\py_workspace\\wsm-codes\\ChineseNews"
+    chineseQuery = '烏克蘭 大選'
+    relevanceScore(chinesePath, 'cs', chineseQuery, feedBack_mode = False, chineseMode = True)
+    
+    #4 - evaluation
+    evaluation()
